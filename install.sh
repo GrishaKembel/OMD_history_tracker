@@ -188,6 +188,7 @@ check_existing_files() {
     
     if [ -f "webhook_listener.py" ]; then
         print_warning "Файл webhook_listener.py уже существует"
+
         files_exist=true
     fi
     
@@ -203,7 +204,7 @@ check_existing_files() {
     
     if [ "$files_exist" = true ]; then
         echo ""
-        read -p "Перезаписать существующие файлы? (y/n) " -n 1 -r
+        read -p "Перезаписать существующие файлы? (y/n)" -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             print_info "Установка отменена. Существующие файлы не изменены."
@@ -348,6 +349,17 @@ create_project_files() {
         exit 1
     else
         print_success "webhook_listener.py найден"
+
+        # ДОБАВЬТЕ АВТОМАТИЧЕСКОЕ ИСПРАВЛЕНИЕ
+        print_info "Применение исправлений для webhook_listener.py..."
+
+        # Бэкап оригинала
+        cp webhook_listener.py webhook_listener.py.backup
+
+        # Исправление: добавляем проверки isinstance
+        sed -i 's/entity = event_data.get('\''entity'\'', {})/entity = event_data.get('\''entity'\'', {})\n        if isinstance(entity, str):\n            entity = {}/g' webhook_listener.py
+
+        print_success "Исправления применены"
     fi
     
     # Проверяем requirements.txt

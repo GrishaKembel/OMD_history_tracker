@@ -143,34 +143,100 @@ def init_database():
         conn.close()
         raise
 
-
 def save_change_event(event_data: Dict[str, Any]) -> bool:
+ # ВРЕМЕННО: Логируем полный payload для отладки
+    logger.info(f"=== ПОЛНЫЙ PAYLOAD ===")
+    logger.info(f"event_data type: {type(event_data)}")
+    logger.info(f"event_data keys: {event_data.keys()}")
+    logger.info(f"entity type: {type(event_data.get('entity'))}")
+    logger.info(f"entity value: {event_data.get('entity')}")
+    logger.info(f"======================")
+
     """Сохраняет событие изменения в БД"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Извлекаем основные данные из события
         event_id = event_data.get('id', event_data.get('eventId'))
         event_type = event_data.get('eventType')
-        timestamp = event_data.get('timestamp', datetime.utcnow().isoformat())
-        
+        #timestamp = event_data.get('timestamp', datetime.utcnow().isoformat())
+        raw_ts = event_data.get('timestamp')
+
+        if isinstance(raw_ts, (int, float)):
+            # Если это миллисекунды
+            if raw_ts > 10**12:  # значит это ms, не секунды
+                timestamp = datetime.fromtimestamp(raw_ts / 1000).isoformat()
+            else:
+                timestamp = datetime.fromtimestamp(raw_ts).isoformat()
+
+        elif isinstance(raw_ts, str):
+            timestamp = raw_ts  # надеемся, что строка уже ISO
+
+        else:
+            timestamp = datetime.utcnow().isoformat()
+
+        # ===== ИСПРАВЛЕНИЕ: Парсинг entity =====
         entity = event_data.get('entity', {})
+        if isinstance(entity, str):
+            entity = {}
+        if isinstance(entity, str):
+            entity = {}
+        if isinstance(entity, str):
+            entity = {}
+        if isinstance(entity, str):
+            entity = {}
+
+        # Если entity пришёл как JSON-строка - распарсить
+        if isinstance(entity, str):
+            try:
+                import json
+                entity = json.loads(entity)
+                logger.info(f"Entity распарсен из строки: {type(entity)}")
+            except:
+                logger.warning(f"Не удалось распарсить entity как JSON, используем пустой dict")
+                entity = {}
+
+        # Если entity всё ещё не dict - используем пустой
+        if not isinstance(entity, dict):
+            entity = {}
+        # =======================================
+
         entity_type = entity.get('type') or event_data.get('entityType')
         entity_id = entity.get('id') or event_data.get('entityId')
-        entity_fqn = entity.get('fullyQualifiedName') or event_data.get('entityFQN')
-        entity_name = entity.get('name')
-        
+        entity_fqn = entity.get('fullyQualifiedName') or event_data.get('entityFQN') or event_data.get('entityUrn')
+        entity_name = entity.get('name') or event_data.get('entityName')
+
+        # ===== ИСПРАВЛЕНИЕ: Парсинг changeDescription =====
         change_desc = event_data.get('changeDescription', {})
+
+        # Если changeDescription пришёл как JSON-строка - распарсить
+        if isinstance(change_desc, str):
+            try:
+                import json
+                change_desc = json.loads(change_desc)
+                logger.info(f"ChangeDescription распарсен из строки")
+            except:
+                logger.warning(f"Не удалось распарсить changeDescription как JSON")
+                change_desc = {}
+
+        # Если не dict - используем пустой
+        if not isinstance(change_desc, dict):
+            change_desc = {}
+        # ==================================================
+
         updated_by = event_data.get('updatedBy') or event_data.get('userName')
         previous_version = event_data.get('previousVersion')
         current_version = event_data.get('currentVersion')
-        
+
+        # Логируем что получили для отладки
+        logger.info(f"Обработка события: type={event_type}, entity_type={entity_type}, fqn={entity_fqn}, name={entity_name}")
+
         # Сохраняем основное событие
         cursor.execute("""
-            INSERT INTO metadata_change_events 
-            (event_id, event_type, event_time, entity_type, entity_id, entity_fqn, 
-             entity_name, change_description, updated_by, previous_version, 
+            INSERT INTO metadata_change_events
+            (event_id, event_type, event_time, entity_type, entity_id, entity_fqn,
+             entity_name, change_description, updated_by, previous_version,
              current_version, full_payload)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (event_id) DO NOTHING
@@ -179,36 +245,39 @@ def save_change_event(event_data: Dict[str, Any]) -> bool:
             entity_name, str(change_desc), updated_by, previous_version,
             current_version, Json(event_data)
         ))
-        
+
         # Сохраняем детали изменений полей
-        fields_added = change_desc.get('fieldsAdded', [])
-        fields_updated = change_desc.get('fieldsUpdated', [])
-        fields_deleted = change_desc.get('fieldsDeleted', [])
-        
+        fields_added = change_desc.get('fieldsAdded', []) if isinstance(change_desc, dict) else []
+        fields_updated = change_desc.get('fieldsUpdated', []) if isinstance(change_desc, dict) else []
+        fields_deleted = change_desc.get('fieldsDeleted', []) if isinstance(change_desc, dict) else []
+
         for field in fields_added:
-            cursor.execute("""
-                INSERT INTO field_changes (event_id, field_name, new_value, change_type)
-                VALUES (%s, %s, %s, %s)
-            """, (event_id, field.get('name'), str(field.get('newValue')), 'added'))
-        
+            if isinstance(field, dict):
+                cursor.execute("""
+                    INSERT INTO field_changes (event_id, field_name, new_value, change_type)
+                    VALUES (%s, %s, %s, %s)
+                """, (event_id, field.get('name'), str(field.get('newValue')), 'added'))
+
         for field in fields_updated:
-            cursor.execute("""
-                INSERT INTO field_changes (event_id, field_name, old_value, new_value, change_type)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (event_id, field.get('name'), str(field.get('oldValue')), 
-                  str(field.get('newValue')), 'updated'))
-        
+            if isinstance(field, dict):
+                cursor.execute("""
+                    INSERT INTO field_changes (event_id, field_name, old_value, new_value, change_type)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (event_id, field.get('name'), str(field.get('oldValue')),
+                      str(field.get('newValue')), 'updated'))
+
         for field in fields_deleted:
-            cursor.execute("""
-                INSERT INTO field_changes (event_id, field_name, old_value, change_type)
-                VALUES (%s, %s, %s, %s)
-            """, (event_id, field.get('name'), str(field.get('oldValue')), 'deleted'))
-        
+            if isinstance(field, dict):
+                cursor.execute("""
+                    INSERT INTO field_changes (event_id, field_name, old_value, change_type)
+                    VALUES (%s, %s, %s, %s)
+                """, (event_id, field.get('name'), str(field.get('oldValue')), 'deleted'))
+
         # Если это событие удаления - сохраняем в таблицу удалённых
         if event_type == 'entityDeleted':
             cursor.execute("""
-                INSERT INTO deleted_entities 
-                (entity_id, entity_type, entity_fqn, entity_name, deleted_at, 
+                INSERT INTO deleted_entities
+                (entity_id, entity_type, entity_fqn, entity_name, deleted_at,
                  deleted_by, last_snapshot)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (entity_id) DO UPDATE SET
@@ -216,18 +285,20 @@ def save_change_event(event_data: Dict[str, Any]) -> bool:
                     deleted_by = EXCLUDED.deleted_by
             """, (
                 entity_id, entity_type, entity_fqn, entity_name, timestamp,
-                updated_by, Json(entity)
+                updated_by, Json(entity if isinstance(entity, dict) else {})
             ))
-        
+
         conn.commit()
         cursor.close()
         conn.close()
-        
-        logger.info(f"Событие {event_id} ({event_type}) сохранено для {entity_fqn}")
+
+        logger.info(f"✓ Событие {event_id} ({event_type}) сохранено для {entity_fqn}")
         return True
-        
+
     except Exception as e:
-        logger.error(f"Ошибка сохранения события: {e}")
+        logger.error(f"✗ Ошибка сохранения события: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 
