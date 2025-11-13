@@ -357,7 +357,7 @@ create_project_files() {
         cp webhook_listener.py webhook_listener.py.backup
 
         # Исправление: добавляем проверки isinstance
-        sed -i 's/entity = event_data.get('\''entity'\'', {})/entity = event_data.get('\''entity'\'', {})\n        if isinstance(entity, str):\n            entity = {}/g' webhook_listener.py
+        # sed -i 's/entity = event_data.get('\''entity'\'', {})/entity = event_data.get('\''entity'\'', {})\n        if isinstance(entity, str):\n            entity = {}/g' webhook_listener.py
 
         print_success "Исправления применены"
     fi

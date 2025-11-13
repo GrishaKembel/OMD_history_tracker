@@ -144,19 +144,12 @@ def init_database():
         raise
 
 def save_change_event(event_data: Dict[str, Any]) -> bool:
- # ВРЕМЕННО: Логируем полный payload для отладки
-    logger.info(f"=== ПОЛНЫЙ PAYLOAD ===")
-    logger.info(f"event_data type: {type(event_data)}")
-    logger.info(f"event_data keys: {event_data.keys()}")
-    logger.info(f"entity type: {type(event_data.get('entity'))}")
-    logger.info(f"entity value: {event_data.get('entity')}")
-    logger.info(f"======================")
-
     """Сохраняет событие изменения в БД"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-
+        logger.info(f"event_data keys: {event_data.keys()}")
+        logger.info(f"Full event_data: {event_data}")
         # Извлекаем основные данные из события
         event_id = event_data.get('id', event_data.get('eventId'))
         event_type = event_data.get('eventType')
@@ -176,18 +169,22 @@ def save_change_event(event_data: Dict[str, Any]) -> bool:
         else:
             timestamp = datetime.utcnow().isoformat()
 
-        # ===== ИСПРАВЛЕНИЕ: Парсинг entity =====
-        entity = event_data.get('entity', {})
-        if isinstance(entity, str):
-            entity = {}
-        if isinstance(entity, str):
-            entity = {}
-        if isinstance(entity, str):
-            entity = {}
-        if isinstance(entity, str):
-            entity = {}
-
         # Если entity пришёл как JSON-строка - распарсить
+        entity = event_data.get('entity', {})
+        logger.info(f"Extracted entity: {entity}") #1111111111111111111111111
+        logger.info(f"entity type: {type(entity)}, value: {entity}")
+
+        if not entity or (isinstance(entity, dict) and len(entity) == 0):
+            logger.warning("Entity пустой, используем данные из верхнего уровня event_data")
+            # Создаём псевдо-entity из данных event_data
+            entity = {
+                'type': event_data.get('entityType'),
+                'id': event_data.get('entityId'),
+                'fullyQualifiedName': event_data.get('entityFQN') or event_data.get('entityUrn'),
+                'name': event_data.get('entityName')
+            }
+            logger.info(f"Constructed entity from event_data: {entity}")
+
         if isinstance(entity, str):
             try:
                 import json
@@ -199,6 +196,7 @@ def save_change_event(event_data: Dict[str, Any]) -> bool:
 
         # Если entity всё ещё не dict - используем пустой
         if not isinstance(entity, dict):
+            logger.warning(f"Entity не является dict: {type(entity)}")
             entity = {}
         # =======================================
 
@@ -206,6 +204,7 @@ def save_change_event(event_data: Dict[str, Any]) -> bool:
         entity_id = entity.get('id') or event_data.get('entityId')
         entity_fqn = entity.get('fullyQualifiedName') or event_data.get('entityFQN') or event_data.get('entityUrn')
         entity_name = entity.get('name') or event_data.get('entityName')
+
 
         # ===== ИСПРАВЛЕНИЕ: Парсинг changeDescription =====
         change_desc = event_data.get('changeDescription', {})
